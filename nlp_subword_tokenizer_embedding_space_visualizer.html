@@ -1,0 +1,1959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TokenLens — Subword Tokenizer & Embedding Space Visualizer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            slate: {
+              850: '#172033',
+              925: '#0c1220',
+              950: '#070b14',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar and subtle visual refinements */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    canvas {
+      touch-action: none;
+    }
+    .token-pill {
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    .token-pill:hover {
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500/30 selection:text-indigo-200 min-h-screen flex flex-col">
+
+  <!-- Top Navigation Header -->
+  <header class="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md sticky top-0 z-30">
+    <div class="max-w-[1440px] mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 via-violet-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-bold tracking-tight text-white">TokenLens</h1>
+            <span class="text-[11px] font-mono font-medium px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">BPE + 3D Embeddings</span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">Subword Tokenization, OOV Fallback &amp; Orthographic vs. Semantic 3D Vector Graphs</p>
+        </div>
+      </div>
+
+      <!-- Quick Corpus Presets -->
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="text-xs text-slate-400 font-medium mr-1 hidden md:inline">Load Corpus Preset:</span>
+        <button onclick="loadPreset('ai')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition cursor-pointer">
+          AI &amp; Morphology
+        </button>
+        <button onclick="loadPreset('nature')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition cursor-pointer">
+          Nature &amp; Ecology
+        </button>
+        <button onclick="loadPreset('space')" class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition cursor-pointer">
+          Space &amp; Physics
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- Top Grid: Step 1 (Corpus & Vocab) + Step 2 (Tokenizer & OOV Subwords) -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- STEP 1: Training Corpus & BPE Vocabulary Builder -->
+      <section class="lg:col-span-6 bg-slate-900/90 border border-slate-800 rounded-2xl p-5 flex flex-col shadow-xl">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2.5">
+            <span class="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold flex items-center justify-center">1</span>
+            <h2 class="text-base font-semibold text-white">Training Corpus &amp; Vocabulary Builder</h2>
+          </div>
+          <span id="corpusStatsBadge" class="text-xs font-mono text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60">
+            0 words · 0 vocab
+          </span>
+        </div>
+
+        <label for="trainingInput" class="text-xs text-slate-400 mb-1.5">
+          Enter or edit a training paragraph. Byte-Pair Encoding (BPE) learns subwords and full words strictly from this text:
+        </label>
+        <textarea
+          id="trainingInput"
+          rows="4"
+          class="w-full rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 text-sm text-slate-100 p-3.5 leading-relaxed outline-none transition resize-y"
+          placeholder="Paste a paragraph here to build a vocabulary..."
+        ></textarea>
+
+        <!-- Controls Bar -->
+        <div class="mt-4 flex flex-wrap items-center justify-between gap-4 bg-slate-950/60 border border-slate-800/80 rounded-xl p-3">
+          <div class="flex-1 min-w-[190px]">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-slate-300 font-medium">BPE Subword Merge Steps</span>
+              <span id="mergeStepsLabel" class="font-mono font-semibold text-indigo-400">45 merges</span>
+            </div>
+            <input
+              id="mergeStepsSlider"
+              type="range"
+              min="8"
+              max="120"
+              value="45"
+              class="w-full accent-indigo-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+            />
+          </div>
+
+          <button
+            id="buildVocabBtn"
+            onclick="runFullPipeline()"
+            class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-semibold shadow-lg shadow-indigo-600/20 flex items-center gap-2 transition cursor-pointer"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+            </svg>
+            Build Vocabulary &amp; Graphs
+          </button>
+        </div>
+
+        <!-- Learned Vocabulary Viewer -->
+        <div class="mt-4 flex-1 flex flex-col min-h-[195px]">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Learned Vocabulary Table</span>
+            <div class="flex items-center gap-1.5 text-[11px]">
+              <button onclick="setVocabFilter('all')" id="vFilterAll" class="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium cursor-pointer">All</button>
+              <button onclick="setVocabFilter('word')" id="vFilterWord" class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/70 cursor-pointer">Words</button>
+              <button onclick="setVocabFilter('subword')" id="vFilterSubword" class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/70 cursor-pointer">Subwords</button>
+              <button onclick="setVocabFilter('char')" id="vFilterChar" class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/70 cursor-pointer">Chars</button>
+            </div>
+          </div>
+
+          <div id="vocabContainer" class="flex-1 max-h-[210px] overflow-y-auto rounded-xl bg-slate-950/80 border border-slate-800/90 p-2.5 flex flex-wrap content-start gap-1.5">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 2: Test Input Tokenization & OOV Subword Fallback -->
+      <section class="lg:col-span-6 bg-slate-900/90 border border-slate-800 rounded-2xl p-5 flex flex-col shadow-xl">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <div class="flex items-center gap-2.5">
+            <span class="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center justify-center">2</span>
+            <h2 class="text-base font-semibold text-white">Tokenize Text &amp; Subword OOV Fallback</h2>
+          </div>
+          <span id="tokenStatsBadge" class="text-xs font-mono text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60">
+            0 words → 0 tokens
+          </span>
+        </div>
+
+        <label for="testInput" class="text-xs text-slate-400 mb-1.5">
+          Type any sentence below (including unseen / Out-Of-Vocabulary words). Unseen words automatically split into learned subword pieces:
+        </label>
+        <textarea
+          id="testInput"
+          rows="3"
+          class="w-full rounded-xl bg-slate-950/90 border border-slate-700/80 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 text-sm text-slate-100 p-3.5 leading-relaxed outline-none transition resize-y"
+          placeholder="Type test text with unseen words to see subword segmentation..."
+        ></textarea>
+
+        <!-- Legend & Live Indicator -->
+        <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="inline-flex items-center gap-1.5 text-emerald-300">
+              <span class="w-2.5 h-2.5 rounded-sm bg-emerald-500/30 border border-emerald-400"></span>
+              Known Full Word
+            </span>
+            <span class="inline-flex items-center gap-1.5 text-amber-300">
+              <span class="w-2.5 h-2.5 rounded-sm bg-amber-500/30 border border-amber-400"></span>
+              OOV Subword Split (<code class="font-mono">##</code>)
+            </span>
+            <span class="inline-flex items-center gap-1.5 text-rose-300">
+              <span class="w-2.5 h-2.5 rounded-sm bg-rose-500/30 border border-rose-400"></span>
+              Unseen Char Fallback
+            </span>
+          </div>
+          <span class="text-slate-400 italic">Click any token to inspect &amp; highlight in graphs</span>
+        </div>
+
+        <!-- Tokenized Output Pills Box -->
+        <div id="tokenizedOutput" class="mt-3 flex-1 min-h-[165px] max-h-[235px] overflow-y-auto rounded-xl bg-slate-950/90 border border-slate-800 p-3.5 flex flex-wrap content-start gap-2">
+          <!-- Token pills rendered here -->
+        </div>
+
+        <!-- Selected Token Inspector Bar -->
+        <div id="tokenInspector" class="mt-3 rounded-xl bg-slate-950/80 border border-slate-800/90 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-2 text-slate-400">
+            <svg class="w-4 h-4 text-indigo-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>Select any token pill above or any node in the 3D graphs below to compare spelling vs. meaning neighbors.</span>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- STEP 3: Dual Interactive 3D Embedding Graphs (Spelling vs Meaning) -->
+    <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+        <div class="flex items-center gap-2.5">
+          <span class="w-6 h-6 rounded-lg bg-violet-500/20 text-violet-300 border border-violet-500/30 text-xs font-bold flex items-center justify-center">3</span>
+          <div>
+            <h2 class="text-base font-semibold text-white">3D Vector Space Projections: Spelling vs. Semantic Meaning</h2>
+            <p class="text-xs text-slate-400">Drag to orbit in 360° (yaw &amp; pitch), scroll to zoom, and click nodes to highlight across both 3D spaces simultaneously.</p>
+          </div>
+        </div>
+
+        <!-- 3D Graph Controls -->
+        <div class="flex flex-wrap items-center gap-3 bg-slate-950/70 border border-slate-800 rounded-xl px-3.5 py-2">
+          <label class="inline-flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
+            <input id="toggleLabels" type="checkbox" checked class="rounded accent-indigo-500 cursor-pointer" />
+            Labels
+          </label>
+          <span class="text-slate-700">|</span>
+          <label class="inline-flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
+            <input id="toggleEdges" type="checkbox" checked class="rounded accent-indigo-500 cursor-pointer" />
+            Edges
+          </label>
+          <div class="flex items-center gap-1.5">
+            <span class="text-[11px] text-slate-400">Thresh:</span>
+            <input id="edgeThresholdSlider" type="range" min="0.25" max="0.90" step="0.05" value="0.52" class="w-16 accent-violet-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer" />
+            <span id="edgeThresholdVal" class="text-[11px] font-mono text-violet-300 w-7">0.52</span>
+          </div>
+          <span class="text-slate-700">|</span>
+          <label class="inline-flex items-center gap-1.5 text-xs text-cyan-300 cursor-pointer select-none" title="Orbit and zoom both 3D graphs together">
+            <input id="syncCamerasToggle" type="checkbox" checked class="rounded accent-cyan-500 cursor-pointer" />
+            Sync Cameras
+          </label>
+          <span class="text-slate-700">|</span>
+          <label class="inline-flex items-center gap-1.5 text-xs text-amber-300 cursor-pointer select-none">
+            <input id="autoRotateToggle" type="checkbox" checked class="rounded accent-amber-500 cursor-pointer" />
+            Auto-Rotate
+          </label>
+          <span class="text-slate-700">|</span>
+          <button onclick="resetGraphViews()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition cursor-pointer">
+            Reset 3D View
+          </button>
+        </div>
+      </div>
+
+      <!-- Color Legend Bar for Graphs -->
+      <div class="flex flex-wrap items-center justify-between gap-3 text-xs px-1">
+        <div class="flex flex-wrap items-center gap-4">
+          <span class="inline-flex items-center gap-1.5 text-slate-300">
+            <span class="w-3 h-3 rounded-full bg-indigo-400 inline-block shadow shadow-indigo-400/50"></span>
+            Corpus Vocabulary Word
+          </span>
+          <span class="inline-flex items-center gap-1.5 text-slate-300">
+            <span class="w-3 h-3 rounded-full bg-emerald-400 inline-block shadow shadow-emerald-400/50"></span>
+            Test Sentence Word (In-Vocab)
+          </span>
+          <span class="inline-flex items-center gap-1.5 text-slate-300">
+            <span class="w-3 h-3 rounded-full bg-amber-400 inline-block shadow shadow-amber-400/50"></span>
+            Test OOV Word (Subword-Composed)
+          </span>
+          <span class="inline-flex items-center gap-1.5 text-slate-300">
+            <span class="w-3 h-3 rounded-full bg-cyan-400 inline-block ring-2 ring-white"></span>
+            Selected Node
+          </span>
+        </div>
+        <span class="text-slate-400 font-mono text-[11px]">OOV meaning vectors = subword root average</span>
+      </div>
+
+      <!-- Dual 3D Canvas Container -->
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+
+        <!-- GRAPH 1: Spelling / Orthographic Similarity (3D) -->
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden flex flex-col">
+          <div class="px-4 py-2.5 bg-slate-900/70 border-b border-slate-800/80 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+              <h3 class="text-xs font-semibold uppercase tracking-wider text-sky-300">Graph A · Spelling Similarity Space (3D)</h3>
+            </div>
+            <span class="text-[11px] font-mono text-slate-400">3D Levenshtein + N-Gram MDS</span>
+          </div>
+          <div class="relative w-full h-[410px] sm:h-[450px]" id="spellingCanvasWrapper">
+            <canvas id="spellingCanvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+            <div class="absolute top-2.5 right-3 text-[10px] font-mono text-slate-400 bg-slate-900/80 border border-slate-800 px-2 py-0.5 rounded pointer-events-none" id="spellingCameraHud">
+              Yaw 32° · Pitch 22° · 1.00x
+            </div>
+            <div class="absolute bottom-2.5 left-3 text-[11px] text-slate-500 pointer-events-none">
+              3D orthographic clusters: shared prefixes, roots &amp; suffixes · Drag to orbit
+            </div>
+          </div>
+        </div>
+
+        <!-- GRAPH 2: Semantic / Contextual Meaning Similarity (3D) -->
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden flex flex-col">
+          <div class="px-4 py-2.5 bg-slate-900/70 border-b border-slate-800/80 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-fuchsia-400"></span>
+              <h3 class="text-xs font-semibold uppercase tracking-wider text-fuchsia-300">Graph B · Meaning Similarity Space (3D)</h3>
+            </div>
+            <span class="text-[11px] font-mono text-slate-400">3D PPMI Co-occurrence + Subword MDS</span>
+          </div>
+          <div class="relative w-full h-[410px] sm:h-[450px]" id="meaningCanvasWrapper">
+            <canvas id="meaningCanvas" class="w-full h-full block cursor-grab active:cursor-grabbing"></canvas>
+            <div class="absolute top-2.5 right-3 text-[10px] font-mono text-slate-400 bg-slate-900/80 border border-slate-800 px-2 py-0.5 rounded pointer-events-none" id="meaningCameraHud">
+              Yaw 32° · Pitch 22° · 1.00x
+            </div>
+            <div class="absolute bottom-2.5 left-3 text-[11px] text-slate-500 pointer-events-none">
+              3D semantic clusters: words sharing context · Drag to orbit
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Detailed Node Comparison Drawer (Updates when user clicks a node) -->
+      <div id="nodeComparisonPanel" class="hidden rounded-xl bg-slate-950/90 border border-slate-800 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-800/80">
+          <div class="flex items-center gap-2.5">
+            <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Selected Word Analysis:</span>
+            <span id="compWordTitle" class="font-mono text-base font-bold text-cyan-300"></span>
+            <span id="compWordType" class="text-[11px] px-2 py-0.5 rounded-full font-medium"></span>
+          </div>
+          <div id="compSubwordBreakdown" class="text-xs font-mono text-slate-300"></div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div class="bg-slate-900/70 border border-slate-800/80 rounded-xl p-3">
+            <div class="font-semibold text-sky-300 mb-2 flex items-center justify-between">
+              <span>Top Closest by Spelling (Orthography)</span>
+              <span class="text-[10px] font-mono text-slate-400">Similarity Score</span>
+            </div>
+            <ul id="compSpellingNeighbors" class="space-y-1.5 font-mono"></ul>
+          </div>
+          <div class="bg-slate-900/70 border border-slate-800/80 rounded-xl p-3">
+            <div class="font-semibold text-fuchsia-300 mb-2 flex items-center justify-between">
+              <span>Top Closest by Meaning (Context Semantics)</span>
+              <span class="text-[10px] font-mono text-slate-400">Cosine Similarity</span>
+            </div>
+            <ul id="compMeaningNeighbors" class="space-y-1.5 font-mono"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Floating Tooltip for Graph Hover -->
+  <div id="graphTooltip" class="fixed z-50 pointer-events-none hidden bg-slate-900/95 border border-slate-700 text-slate-100 rounded-xl px-3 py-2 text-xs shadow-2xl backdrop-blur-md max-w-xs">
+  </div>
+
+  <script>
+    /**
+     * ============================================================================
+     * TokenLens: Client-Side BPE Subword Tokenizer & 2D Embedding Visualizer
+     * ============================================================================
+     * Architecture:
+     * 1. Preprocessing & Word Frequency Extraction from Training Paragraph
+     * 2. Byte-Pair Encoding (BPE) Merge Learner -> Builds Vocabulary (Chars, Subwords, Full Words)
+     * 3. Greedy Longest-Match / BPE-Aware Subword Tokenizer for Test Sentences (handles OOV words)
+     * 4. Orthographic Similarity Engine (Normalized Levenshtein + Character Bigram/Trigram Jaccard)
+     * 5. Distributional Semantic Engine (Sliding Window Co-occurrence -> PPMI -> Cosine Similarity,
+     *    with Subword-Averaged Vector Composition for Out-Of-Vocabulary words)
+     * 6. Classical Multidimensional Scaling (Power-Iteration Eigendecomposition) + Overlap Relaxation
+     *    to project both similarity matrices into clean 2D coordinates.
+     * 7. Interactive Dual HTML5 Canvas Renderer with Pan, Zoom, Hover Tooltips, and Node Selection.
+     */
+
+    // ----------------------------------------------------------------------------
+    // 1. Preset Corpora & Test Sentences
+    // ----------------------------------------------------------------------------
+    const PRESETS = {
+      ai: {
+        training:
+          "Neural networks learn language patterns by training on vast text corpora. " +
+          "A modern language model tokenizes words into smaller subword units so that unseen words can still be understood. " +
+          "Deep learning models transform tokens into dense vector embeddings where similar meanings cluster together. " +
+          "When a neural network processes language, each token embedding captures semantic context and grammatical structure. " +
+          "Smart algorithms train quickly, generalize well, and empower intelligent assistants to reason and write clearly.",
+        test:
+          "Modern neural models generalize brilliantly! Even an unseen word like tokenization, " +
+          "retraining, subwords, or hyperintelligent splits cleanly into known pieces while unknown symbols like @ stay safe."
+      },
+      nature: {
+        training:
+          "Ancient forests breathe life into mountain valleys and flowing rivers. " +
+          "Tall evergreen trees shelter woodland creatures while deep roots anchor fertile soil against heavy rainfall. " +
+          "Sunlight filters through green leaves, warming forest streams where silver fish swim gracefully. " +
+          "Healthy ecosystems balance rainfall, soil nutrients, and wildlife diversity across changing seasons. " +
+          "Protecting wild forests preserves clean water, fresh air, and thriving natural habitats.",
+        test:
+          "Reforestation protects woodland ecosystems! Even unseen words like greener, " +
+          "waterways, sunlights, and bioforests decompose smoothly into familiar botanical subwords."
+      },
+      space: {
+        training:
+          "Distant galaxies spiral across the expanding universe, bound together by invisible gravity. " +
+          "Massive stars fuse hydrogen into heavier elements before shining brightly across dark cosmic space. " +
+          "Orbiting planets, icy moons, and rocky asteroids circle young stars inside solar systems. " +
+          "Space telescopes observe starlight and cosmic radiation to uncover how galaxies form and evolve over billions of years.",
+        test:
+          "Astronomers study starlight from exoplanets and protogalaxies! Unseen terms like " +
+          "gravitational, starships, and suborbital break down into learned cosmic subwords."
+      }
+    };
+
+    // ----------------------------------------------------------------------------
+    // 2. Global Application State
+    // ----------------------------------------------------------------------------
+    const state = {
+      vocab: [],               // Array of { id, token, display, freq, type: 'char'|'subword'|'word', isWordEnd }
+      vocabMap: new Map(),     // token -> vocabEntry
+      bpeMerges: [],           // Ordered array of [left, right] merge rules
+      corpusWords: [],         // Ordered list of lowercase words in training paragraph
+      wordFreq: new Map(),     // word -> count in training paragraph
+      tokenizedTest: [],       // Array of word-level tokenization results for test input
+      vocabFilter: 'all',      // 'all' | 'word' | 'subword' | 'char'
+      selectedWord: null,      // Currently inspected word string
+      graphNodes: [],          // Unified list of nodes plotted on both graphs
+      spellingEdges: [],       // { i, j, weight }
+      meaningEdges: [],        // { i, j, weight }
+      spellingMatrix: [],      // NxN similarity matrix
+      meaningMatrix: [],       // NxN similarity matrix
+      animTime: 0,             // Continuous animation clock for pulse & auto-rotate
+      views: {
+        spelling: { zoom: 1.0, yaw: 0.56, pitch: 0.38, dragging: false, lastX: 0, lastY: 0, hoveredIdx: -1 },
+        meaning:  { zoom: 1.0, yaw: 0.56, pitch: 0.38, dragging: false, lastX: 0, lastY: 0, hoveredIdx: -1 }
+      }
+    };
+
+    // ----------------------------------------------------------------------------
+    // 3. Text Normalization & Token Helpers
+    // ----------------------------------------------------------------------------
+    function extractWords(text) {
+      return (text.toLowerCase().match(/[a-z]+(?:'[a-z]+)?/g) || []);
+    }
+
+    function tokenizeMixedSurface(text) {
+      // Splits into words, numbers, and punctuation symbols while preserving surface order
+      return (text.match(/[a-zA-Z]+(?:'[a-zA-Z]+)?|[0-9]+|[^\s\w]/g) || []);
+    }
+
+    // ----------------------------------------------------------------------------
+    // 4. Byte-Pair Encoding (BPE) Vocabulary Builder
+    // ----------------------------------------------------------------------------
+    function buildBPEVocabulary(corpusText, maxMerges = 45) {
+      const words = extractWords(corpusText);
+      state.corpusWords = words;
+
+      const wordFreq = new Map();
+      for (const w of words) {
+        wordFreq.set(w, (wordFreq.get(w) || 0) + 1);
+      }
+      state.wordFreq = wordFreq;
+
+      // Represent each unique word as character symbols with end-of-word marker </w>
+      let splits = new Map();
+      const charSet = new Set();
+      for (const [word, freq] of wordFreq.entries()) {
+        const chars = word.split('');
+        chars.forEach(c => charSet.add(c));
+        chars[chars.length - 1] = chars[chars.length - 1] + '</w>';
+        splits.set(word, { symbols: chars, freq });
+      }
+
+      const merges = [];
+      const learnedSubwords = new Map(); // token -> freq
+
+      // Iteratively merge most frequent adjacent symbol pairs
+      for (let step = 0; step < maxMerges; step++) {
+        const pairCounts = new Map();
+        for (const { symbols, freq } of splits.values()) {
+          for (let i = 0; i < symbols.length - 1; i++) {
+            const pairKey = symbols[i] + '\u0000' + symbols[i + 1];
+            pairCounts.set(pairKey, (pairCounts.get(pairKey) || 0) + freq);
+          }
+        }
+
+        let bestPair = null;
+        let bestCount = 1; // Require frequency >= 2 to form meaningful subwords
+        for (const [pairKey, count] of pairCounts.entries()) {
+          if (count > bestCount) {
+            bestCount = count;
+            bestPair = pairKey;
+          }
+        }
+
+        if (!bestPair) break;
+
+        const [left, right] = bestPair.split('\u0000');
+        const mergedSymbol = left + right;
+        merges.push([left, right]);
+        learnedSubwords.set(mergedSymbol, bestCount);
+
+        // Apply merge across all word representations
+        for (const entry of splits.values()) {
+          const syms = entry.symbols;
+          const nextSyms = [];
+          let i = 0;
+          while (i < syms.length) {
+            if (i < syms.length - 1 && syms[i] === left && syms[i + 1] === right) {
+              nextSyms.push(mergedSymbol);
+              i += 2;
+            } else {
+              nextSyms.push(syms[i]);
+              i += 1;
+            }
+          }
+          entry.symbols = nextSyms;
+        }
+      }
+
+      state.bpeMerges = merges;
+
+      // Assemble unified vocabulary list: base chars, merged subwords, and known full words
+      const vocabEntries = [];
+      const seenTokens = new Set();
+      let nextId = 0;
+
+      // 1) Base character tokens (both mid-word and end-of-word variants)
+      const sortedChars = Array.from(charSet).sort();
+      for (const ch of sortedChars) {
+        for (const variant of [ch, ch + '</w>']) {
+          if (!seenTokens.has(variant)) {
+            seenTokens.add(variant);
+            vocabEntries.push({
+              id: nextId++,
+              token: variant,
+              display: variant.endsWith('</w>') ? variant.slice(0, -4) : variant,
+              isWordEnd: variant.endsWith('</w>'),
+              freq: 0,
+              type: 'char'
+            });
+          }
+        }
+      }
+
+      // 2) Learned BPE subword merges
+      for (const [sub, freq] of learnedSubwords.entries()) {
+        if (!seenTokens.has(sub)) {
+          seenTokens.add(sub);
+          const clean = sub.endsWith('</w>') ? sub.slice(0, -4) : sub;
+          const isFullWord = sub.endsWith('</w>') && wordFreq.has(clean);
+          vocabEntries.push({
+            id: nextId++,
+            token: sub,
+            display: clean,
+            isWordEnd: sub.endsWith('</w>'),
+            freq,
+            type: isFullWord ? 'word' : 'subword'
+          });
+        }
+      }
+
+      // 3) Ensure all corpus full words are indexed in vocabulary so known words resolve cleanly
+      const sortedCorpusWords = Array.from(wordFreq.entries()).sort((a, b) => b[1] - a[1]);
+      for (const [word, freq] of sortedCorpusWords) {
+        const fullTok = word + '</w>';
+        if (!seenTokens.has(fullTok)) {
+          seenTokens.add(fullTok);
+          vocabEntries.push({
+            id: nextId++,
+            token: fullTok,
+            display: word,
+            isWordEnd: true,
+            freq,
+            type: 'word'
+          });
+        }
+      }
+
+      state.vocab = vocabEntries;
+      state.vocabMap = new Map(vocabEntries.map(v => [v.token, v]));
+
+      // Update UI stats badge
+      document.getElementById('corpusStatsBadge').textContent =
+        `${words.length} words · ${vocabEntries.length} vocab tokens`;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 5. Subword Tokenizer with Out-Of-Vocabulary (OOV) Fallback
+    // ----------------------------------------------------------------------------
+    function segmentSingleWord(rawWord) {
+      const lower = rawWord.toLowerCase();
+      const fullKey = lower + '</w>';
+
+      // Case 1: Word exists directly in known corpus vocabulary
+      if (state.wordFreq.has(lower) && state.vocabMap.has(fullKey)) {
+        const entry = state.vocabMap.get(fullKey);
+        return {
+          original: rawWord,
+          normalized: lower,
+          status: 'known-word',
+          pieces: [{
+            text: lower,
+            rawToken: fullKey,
+            id: entry.id,
+            kind: 'word'
+          }]
+        };
+      }
+
+      // Case 2: Out-Of-Vocabulary (OOV) word -> Apply learned BPE merges + longest-subword greedy fallback
+      let symbols = lower.split('');
+      if (symbols.length > 0) {
+        symbols[symbols.length - 1] += '</w>';
+      }
+
+      // Replay learned BPE merge rules in order
+      for (const [left, right] of state.bpeMerges) {
+        const nextSyms = [];
+        let i = 0;
+        while (i < symbols.length) {
+          if (i < symbols.length - 1 && symbols[i] === left && symbols[i + 1] === right) {
+            nextSyms.push(left + right);
+            i += 2;
+          } else {
+            nextSyms.push(symbols[i]);
+            i += 1;
+          }
+        }
+        symbols = nextSyms;
+      }
+
+      // Refine any remaining unmerged character runs using greedy longest-match against learned subwords
+      const refinedSymbols = [];
+      let buffer = '';
+      const flushBuffer = () => {
+        if (!buffer) return;
+        let pos = 0;
+        while (pos < buffer.length) {
+          let matched = null;
+          for (let end = buffer.length; end > pos; end--) {
+            const candidate = buffer.slice(pos, end);
+            if (state.vocabMap.has(candidate)) {
+              matched = candidate;
+              pos = end;
+              break;
+            }
+          }
+          if (matched) {
+            refinedSymbols.push(matched);
+          } else {
+            // Single unseen character fallback
+            const ch = buffer[pos];
+            refinedSymbols.push(ch);
+            pos += 1;
+          }
+        }
+        buffer = '';
+      };
+
+      for (const sym of symbols) {
+        if (sym.length === 1 || (sym.length === 5 && sym.endsWith('</w>'))) {
+          buffer += sym;
+        } else {
+          flushBuffer();
+          refinedSymbols.push(sym);
+        }
+      }
+      flushBuffer();
+
+      let hasUnk = false;
+      const pieces = refinedSymbols.map((sym, idx) => {
+        const clean = sym.endsWith('</w>') ? sym.slice(0, -4) : sym;
+        const label = idx === 0 ? clean : '##' + clean;
+        const vocabEntry = state.vocabMap.get(sym);
+        if (vocabEntry) {
+          return {
+            text: label,
+            clean,
+            rawToken: sym,
+            id: vocabEntry.id,
+            kind: 'subword'
+          };
+        } else {
+          hasUnk = true;
+          return {
+            text: label,
+            clean,
+            rawToken: sym,
+            id: -1,
+            kind: 'unk'
+          };
+        }
+      });
+
+      return {
+        original: rawWord,
+        normalized: lower,
+        status: hasUnk ? 'partial-unk' : 'oov-subword',
+        pieces
+      };
+    }
+
+    function tokenizeTestParagraph(testText) {
+      const surfaceTokens = tokenizeMixedSurface(testText);
+      const results = [];
+      let totalSubTokens = 0;
+
+      for (const tok of surfaceTokens) {
+        const isAlphaWord = /^[a-zA-Z]+(?:'[a-zA-Z]+)?$/.test(tok);
+        if (isAlphaWord) {
+          const seg = segmentSingleWord(tok);
+          results.push(seg);
+          totalSubTokens += seg.pieces.length;
+        } else {
+          const vocabEntry = state.vocabMap.get(tok) || state.vocabMap.get(tok + '</w>');
+          results.push({
+            original: tok,
+            normalized: tok,
+            status: vocabEntry ? 'known-word' : 'partial-unk',
+            pieces: [{
+              text: tok,
+              clean: tok,
+              rawToken: tok,
+              id: vocabEntry ? vocabEntry.id : -1,
+              kind: vocabEntry ? 'char' : 'unk'
+            }]
+          });
+          totalSubTokens += 1;
+        }
+      }
+
+      state.tokenizedTest = results;
+      document.getElementById('tokenStatsBadge').textContent =
+        `${results.length} words → ${totalSubTokens} tokens`;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 6. Orthographic (Spelling) & Semantic (Meaning) Similarity Engines
+    // ----------------------------------------------------------------------------
+    function levenshteinDistance(a, b) {
+      const m = a.length;
+      const n = b.length;
+      const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+      for (let i = 0; i <= m; i++) dp[i][0] = i;
+      for (let j = 0; j <= n; j++) dp[0][j] = j;
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+          dp[i][j] = Math.min(
+            dp[i - 1][j] + 1,
+            dp[i][j - 1] + 1,
+            dp[i - 1][j - 1] + cost
+          );
+        }
+      }
+      return dp[m][n];
+    }
+
+    function getCharNGrams(word, n = 2) {
+      const padded = `<${word}>`;
+      const grams = new Set();
+      for (let i = 0; i <= padded.length - n; i++) {
+        grams.add(padded.slice(i, i + n));
+      }
+      return grams;
+    }
+
+    function computeSpellingSimilarity(w1, w2) {
+      if (w1 === w2) return 1.0;
+      const maxLen = Math.max(w1.length, w2.length) || 1;
+      const levSim = 1 - levenshteinDistance(w1, w2) / maxLen;
+
+      const g1 = getCharNGrams(w1, 2);
+      const g2 = getCharNGrams(w2, 2);
+      let inter = 0;
+      for (const g of g1) if (g2.has(g)) inter++;
+      const union = g1.size + g2.size - inter || 1;
+      const ngramSim = inter / union;
+
+      // Shared prefix/suffix morphological bonus
+      let prefixMatch = 0;
+      const minLen = Math.min(w1.length, w2.length);
+      while (prefixMatch < minLen && w1[prefixMatch] === w2[prefixMatch]) prefixMatch++;
+      const prefixBonus = Math.min(0.18, (prefixMatch / maxLen) * 0.25);
+
+      return Math.min(0.99, Math.max(0.02, 0.52 * levSim + 0.38 * ngramSim + prefixBonus));
+    }
+
+    function buildSemanticVectors(nodes) {
+      const N = nodes.length;
+      const allWords = [...state.corpusWords, ...extractWords(document.getElementById('testInput').value)];
+      const vocabSet = new Set(nodes.map(n => n.word));
+      const wordToIdx = new Map(nodes.map((n, i) => [n.word, i]));
+
+      // Build symmetric sliding-window co-occurrence counts (window radius = 4)
+      const windowRadius = 4;
+      const cooc = Array.from({ length: N }, () => new Float64Array(N));
+      const wordCounts = new Float64Array(N);
+      let totalPairs = 0;
+
+      for (let i = 0; i < allWords.length; i++) {
+        const w = allWords[i];
+        const idxA = wordToIdx.get(w);
+        if (idxA === undefined) continue;
+        wordCounts[idxA] += 1;
+
+        for (let offset = -windowRadius; offset <= windowRadius; offset++) {
+          if (offset === 0) continue;
+          const j = i + offset;
+          if (j < 0 || j >= allWords.length) continue;
+          const idxB = wordToIdx.get(allWords[j]);
+          if (idxB === undefined) continue;
+          const weight = 1 / Math.abs(offset);
+          cooc[idxA][idxB] += weight;
+          totalPairs += weight;
+        }
+      }
+
+      // Compute Positive Pointwise Mutual Information (PPMI) vectors
+      const vectors = Array.from({ length: N }, () => new Float64Array(N));
+      const totalWordCount = wordCounts.reduce((a, b) => a + b, 0) || 1;
+
+      for (let i = 0; i < N; i++) {
+        vectors[i][i] = 1.2; // Self-identity anchor
+        for (let j = 0; j < N; j++) {
+          if (i === j || cooc[i][j] <= 0 || totalPairs <= 0) continue;
+          const pXY = cooc[i][j] / totalPairs;
+          const pX = (wordCounts[i] || 1) / totalWordCount;
+          const pY = (wordCounts[j] || 1) / totalWordCount;
+          const pmi = Math.log2(pXY / (pX * pY));
+          if (pmi > 0) {
+            vectors[i][j] = pmi;
+          }
+        }
+      }
+
+      // For OOV words, enrich their semantic vector by averaging known corpus words sharing subword stems
+      for (let i = 0; i < N; i++) {
+        const node = nodes[i];
+        if (node.status === 'oov-subword' || node.status === 'partial-unk') {
+          const stems = node.pieces
+            .map(p => (p.clean || p.text.replace(/^##/, '')).toLowerCase())
+            .filter(s => s.length >= 3);
+
+          let stemMatches = 0;
+          for (let j = 0; j < N; j++) {
+            if (i === j) continue;
+            const candidate = nodes[j].word;
+            for (const stem of stems) {
+              if (candidate.includes(stem) || stem.includes(candidate)) {
+                for (let k = 0; k < N; k++) {
+                  vectors[i][k] += vectors[j][k] * 0.65;
+                }
+                stemMatches++;
+                break;
+              }
+            }
+          }
+          if (stemMatches === 0) {
+            // Fallback: blend nearest orthographic neighbors
+            for (let j = 0; j < N; j++) {
+              if (i === j) continue;
+              const spSim = computeSpellingSimilarity(node.word, nodes[j].word);
+              if (spSim > 0.45) {
+                for (let k = 0; k < N; k++) {
+                  vectors[i][k] += vectors[j][k] * spSim * 0.4;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Compute pairwise Cosine Similarity matrix
+      const norms = vectors.map(vec => {
+        let s = 0;
+        for (let k = 0; k < N; k++) s += vec[k] * vec[k];
+        return Math.sqrt(s) || 1;
+      });
+
+      const semMat = Array.from({ length: N }, () => new Float64Array(N));
+      for (let i = 0; i < N; i++) {
+        semMat[i][i] = 1.0;
+        for (let j = i + 1; j < N; j++) {
+          let dot = 0;
+          for (let k = 0; k < N; k++) dot += vectors[i][k] * vectors[j][k];
+          const cos = Math.max(0.02, Math.min(0.99, dot / (norms[i] * norms[j])));
+          semMat[i][j] = cos;
+          semMat[j][i] = cos;
+        }
+      }
+      return semMat;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 7. Classical Multidimensional Scaling (MDS) -> 3D Coordinates (X, Y, Z)
+    // ----------------------------------------------------------------------------
+    function projectSimilarityTo3D(simMatrix, seedOffset = 0) {
+      const N = simMatrix.length;
+      if (N === 0) return [];
+      if (N === 1) return [{ x: 0, y: 0, z: 0 }];
+
+      // Convert similarity [0,1] into squared distance matrix D^2
+      const D2 = Array.from({ length: N }, () => new Float64Array(N));
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          const dist = Math.sqrt(Math.max(0, 1 - simMatrix[i][j]));
+          D2[i][j] = dist * dist;
+        }
+      }
+
+      // Double-centering: B = -0.5 * J * D^2 * J
+      const rowMean = new Float64Array(N);
+      let grandMean = 0;
+      for (let i = 0; i < N; i++) {
+        let s = 0;
+        for (let j = 0; j < N; j++) s += D2[i][j];
+        rowMean[i] = s / N;
+        grandMean += rowMean[i];
+      }
+      grandMean /= N;
+
+      const B = Array.from({ length: N }, () => new Float64Array(N));
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          B[i][j] = -0.5 * (D2[i][j] - rowMean[i] - rowMean[j] + grandMean);
+        }
+      }
+
+      // Deterministic pseudo-random initializer
+      const initVec = (salt) => {
+        const v = new Float64Array(N);
+        for (let i = 0; i < N; i++) {
+          v[i] = Math.sin((i + 1) * 12.9898 + salt * 78.233) * 0.5 + 0.5;
+        }
+        return v;
+      };
+
+      // Power iteration with Gram-Schmidt deflation to extract top 3 eigenvectors of Gram matrix B
+      function topEigenvector(matrix, prevVecs = [], salt = 1) {
+        let v = initVec(salt);
+        for (let iter = 0; iter < 65; iter++) {
+          for (const ex of prevVecs) {
+            let dot = 0;
+            for (let i = 0; i < N; i++) dot += v[i] * ex[i];
+            for (let i = 0; i < N; i++) v[i] -= dot * ex[i];
+          }
+
+          const next = new Float64Array(N);
+          for (let i = 0; i < N; i++) {
+            let sum = 0;
+            const row = matrix[i];
+            for (let j = 0; j < N; j++) sum += row[j] * v[j];
+            next[i] = sum;
+          }
+
+          for (const ex of prevVecs) {
+            let dot = 0;
+            for (let i = 0; i < N; i++) dot += next[i] * ex[i];
+            for (let i = 0; i < N; i++) next[i] -= dot * ex[i];
+          }
+
+          let norm = 0;
+          for (let i = 0; i < N; i++) norm += next[i] * next[i];
+          norm = Math.sqrt(norm) || 1;
+          for (let i = 0; i < N; i++) v[i] = next[i] / norm;
+        }
+
+        // Compute eigenvalue
+        let eigVal = 0;
+        for (let i = 0; i < N; i++) {
+          let sum = 0;
+          for (let j = 0; j < N; j++) sum += matrix[i][j] * v[j];
+          eigVal += v[i] * sum;
+        }
+        return { vec: v, val: Math.max(0.01, eigVal) };
+      }
+
+      const e1 = topEigenvector(B, [], 1 + seedOffset);
+      const e2 = topEigenvector(B, [e1.vec], 2 + seedOffset);
+      const e3 = topEigenvector(B, [e1.vec, e2.vec], 3 + seedOffset);
+
+      const scale1 = Math.sqrt(e1.val);
+      const scale2 = Math.sqrt(e2.val);
+      const scale3 = Math.sqrt(e3.val);
+
+      let coords = Array.from({ length: N }, (_, i) => ({
+        x: e1.vec[i] * scale1,
+        y: e2.vec[i] * scale2,
+        z: e3.vec[i] * scale3
+      }));
+
+      // Normalize 3D coordinates into [-1, 1]^3 bounding cube
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      let minZ = Infinity, maxZ = -Infinity;
+      for (const c of coords) {
+        if (c.x < minX) minX = c.x;
+        if (c.x > maxX) maxX = c.x;
+        if (c.y < minY) minY = c.y;
+        if (c.y > maxY) maxY = c.y;
+        if (c.z < minZ) minZ = c.z;
+        if (c.z > maxZ) maxZ = c.z;
+      }
+      const spanX = (maxX - minX) || 1;
+      const spanY = (maxY - minY) || 1;
+      const spanZ = (maxZ - minZ) || 1;
+
+      coords = coords.map(c => ({
+        x: ((c.x - minX) / spanX) * 2 - 1,
+        y: ((c.y - minY) / spanY) * 2 - 1,
+        z: ((c.z - minZ) / spanZ) * 2 - 1
+      }));
+
+      // Gentle 3D force-repulsion pass so nodes stay cleanly separated in 3D space
+      for (let step = 0; step < 30; step++) {
+        for (let i = 0; i < N; i++) {
+          for (let j = i + 1; j < N; j++) {
+            const dx = coords[j].x - coords[i].x;
+            const dy = coords[j].y - coords[i].y;
+            const dz = coords[j].z - coords[i].z;
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz) || 0.001;
+            const minSep = 0.18;
+            if (dist < minSep) {
+              const push = ((minSep - dist) / dist) * 0.22;
+              coords[i].x -= dx * push;
+              coords[i].y -= dy * push;
+              coords[i].z -= dz * push;
+              coords[j].x += dx * push;
+              coords[j].y += dy * push;
+              coords[j].z += dz * push;
+            }
+          }
+        }
+      }
+
+      return coords;
+    }
+
+    // ----------------------------------------------------------------------------
+    // 8. Build Unified Graph Data (Corpus Words + Test Sentence Words)
+    // ----------------------------------------------------------------------------
+    function buildEmbeddingGraphs() {
+      const STOPWORDS = new Set([
+        'a', 'an', 'the', 'and', 'or', 'but', 'if', 'then', 'so', 'to', 'of',
+        'in', 'on', 'at', 'by', 'for', 'with', 'as', 'is', 'are', 'was', 'were',
+        'be', 'been', 'it', 'its', 'that', 'this', 'from', 'into', 'like', 'even'
+      ]);
+
+      const nodeMap = new Map();
+
+      // Add top frequent content words from the training corpus (up to 28 words for visual clarity)
+      const sortedCorpus = Array.from(state.wordFreq.entries())
+        .filter(([w]) => w.length >= 3 && !STOPWORDS.has(w))
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 28);
+
+      for (const [word, freq] of sortedCorpus) {
+        const seg = segmentSingleWord(word);
+        nodeMap.set(word, {
+          word,
+          freq,
+          inCorpus: true,
+          inTest: false,
+          status: seg.status,
+          pieces: seg.pieces
+        });
+      }
+
+      // Add all content words & OOV words from the test sentence so users can see where they land
+      for (const item of state.tokenizedTest) {
+        const w = item.normalized;
+        if (!/^[a-z]+(?:'[a-z]+)?$/.test(w)) continue;
+        if (w.length < 3 && item.status === 'known-word') continue;
+        if (STOPWORDS.has(w) && item.status === 'known-word') continue;
+
+        if (nodeMap.has(w)) {
+          const existing = nodeMap.get(w);
+          existing.inTest = true;
+        } else {
+          nodeMap.set(w, {
+            word: w,
+            freq: state.wordFreq.get(w) || 0,
+            inCorpus: state.wordFreq.has(w),
+            inTest: true,
+            status: item.status,
+            pieces: item.pieces
+          });
+        }
+      }
+
+      const nodes = Array.from(nodeMap.values()).slice(0, 44);
+      const N = nodes.length;
+
+      // Build Spelling Similarity Matrix
+      const spellMat = Array.from({ length: N }, () => new Float64Array(N));
+      for (let i = 0; i < N; i++) {
+        spellMat[i][i] = 1.0;
+        for (let j = i + 1; j < N; j++) {
+          const sim = computeSpellingSimilarity(nodes[i].word, nodes[j].word);
+          spellMat[i][j] = sim;
+          spellMat[j][i] = sim;
+        }
+      }
+
+      // Build Semantic Similarity Matrix
+      const semMat = buildSemanticVectors(nodes);
+
+      // Project both matrices to 3D (X, Y, Z)
+      const spellCoords = projectSimilarityTo3D(spellMat, 11);
+      const semCoords = projectSimilarityTo3D(semMat, 37);
+
+      state.graphNodes = nodes.map((node, i) => ({
+        ...node,
+        index: i,
+        spellPos: spellCoords[i] || { x: 0, y: 0, z: 0 },
+        semPos: semCoords[i] || { x: 0, y: 0, z: 0 }
+      }));
+      state.spellingMatrix = spellMat;
+      state.meaningMatrix = semMat;
+
+      if (state.selectedWord && !nodeMap.has(state.selectedWord)) {
+        state.selectedWord = null;
+        document.getElementById('nodeComparisonPanel').classList.add('hidden');
+      } else if (state.selectedWord) {
+        updateNodeComparisonDrawer(state.selectedWord);
+      }
+
+      renderBothGraphs();
+    }
+
+    // ----------------------------------------------------------------------------
+    // 9. UI Renderers: Vocabulary Table, Token Pills & Comparison Drawer
+    // ----------------------------------------------------------------------------
+    function setVocabFilter(filter) {
+      state.vocabFilter = filter;
+      const map = {
+        all: 'vFilterAll',
+        word: 'vFilterWord',
+        subword: 'vFilterSubword',
+        char: 'vFilterChar'
+      };
+      for (const [key, id] of Object.entries(map)) {
+        const btn = document.getElementById(id);
+        if (!btn) continue;
+        if (key === filter) {
+          btn.className = 'px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-medium cursor-pointer';
+        } else {
+          btn.className = 'px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-700/70 cursor-pointer';
+        }
+      }
+      renderVocabulary();
+    }
+
+    function renderVocabulary() {
+      const container = document.getElementById('vocabContainer');
+      const filtered = state.vocab.filter(v => state.vocabFilter === 'all' || v.type === state.vocabFilter);
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div class="text-xs text-slate-500 italic p-2">No vocabulary tokens in this category.</div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(entry => {
+        let badgeStyle = 'bg-slate-900 border-slate-700/80 text-slate-300';
+        let tagLabel = 'char';
+        if (entry.type === 'word') {
+          badgeStyle = 'bg-emerald-950/50 border-emerald-500/35 text-emerald-200';
+          tagLabel = 'word';
+        } else if (entry.type === 'subword') {
+          badgeStyle = 'bg-amber-950/40 border-amber-500/35 text-amber-200';
+          tagLabel = 'sub';
+        }
+        const suffixMarker = entry.isWordEnd ? '<span class="text-slate-500 text-[10px]">▁</span>' : '';
+        return `
+          <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-xs font-mono ${badgeStyle}" title="Token ID #${entry.id} (${tagLabel})">
+            <span class="text-[10px] text-slate-500">#${entry.id}</span>
+            <span>${escapeHtml(entry.display)}${suffixMarker}</span>
+          </span>
+        `;
+      }).join('');
+    }
+
+    function renderTokenizedOutput() {
+      const container = document.getElementById('tokenizedOutput');
+      if (state.tokenizedTest.length === 0) {
+        container.innerHTML = `<div class="text-xs text-slate-500 italic">Enter text above to see subword tokenization...</div>`;
+        return;
+      }
+
+      container.innerHTML = state.tokenizedTest.map(group => {
+        const isSelected = state.selectedWord === group.normalized;
+        const ringClass = isSelected ? 'ring-2 ring-cyan-400 bg-cyan-950/30' : 'bg-slate-900/75 border-slate-800';
+
+        const pillsHtml = group.pieces.map(piece => {
+          let pillClass = 'bg-emerald-500/15 text-emerald-200 border-emerald-500/40';
+          if (piece.kind === 'subword') {
+            pillClass = 'bg-amber-500/15 text-amber-200 border-amber-500/40';
+          } else if (piece.kind === 'unk') {
+            pillClass = 'bg-rose-500/20 text-rose-200 border-rose-500/45';
+          } else if (piece.kind === 'char') {
+            pillClass = 'bg-slate-800 text-slate-300 border-slate-700';
+          }
+          const idBadge = piece.id >= 0 ? `<span class="opacity-60 text-[10px]">${piece.id}</span>` : `<span class="text-rose-400 text-[10px]">UNK</span>`;
+          return `
+            <span class="token-pill inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-mono text-xs ${pillClass}">
+              <span>${escapeHtml(piece.text)}</span>
+              ${idBadge}
+            </span>
+          `;
+        }).join('');
+
+        return `
+          <button
+            type="button"
+            onclick="selectWordAndInspect('${escapeJs(group.normalized)}')"
+            class="inline-flex flex-wrap items-center gap-1 p-1.5 rounded-xl border ${ringClass} hover:border-slate-600 transition cursor-pointer text-left"
+            title="Click to inspect '${escapeHtml(group.original)}' in 3D graphs"
+          >
+            ${pillsHtml}
+          </button>
+        `;
+      }).join('');
+    }
+
+    function selectWordAndInspect(word) {
+      state.selectedWord = word;
+      renderTokenizedOutput();
+
+      const inspector = document.getElementById('tokenInspector');
+      const foundGroup = state.tokenizedTest.find(g => g.normalized === word);
+      const graphNode = state.graphNodes.find(n => n.word === word);
+
+      if (foundGroup) {
+        const statusText = foundGroup.status === 'known-word'
+          ? '<span class="text-emerald-300 font-semibold">In-Vocabulary Full Word</span>'
+          : foundGroup.status === 'oov-subword'
+            ? '<span class="text-amber-300 font-semibold">OOV Word → Subword Segmented</span>'
+            : '<span class="text-rose-300 font-semibold">Contains Unseen Character</span>';
+        const breakdown = foundGroup.pieces.map(p => `${p.text} (#${p.id >= 0 ? p.id : 'UNK'})`).join(' + ');
+        inspector.innerHTML = `
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-slate-400">Inspected:</span>
+            <span class="font-mono font-bold text-cyan-300">${escapeHtml(foundGroup.original)}</span>
+            <span>·</span>
+            ${statusText}
+          </div>
+          <div class="font-mono text-slate-200">${escapeHtml(breakdown)}</div>
+        `;
+      } else if (graphNode) {
+        inspector.innerHTML = `
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-slate-400">Corpus Word:</span>
+            <span class="font-mono font-bold text-cyan-300">${escapeHtml(graphNode.word)}</span>
+            <span class="text-indigo-300">(freq: ${graphNode.freq})</span>
+          </div>
+          <div class="font-mono text-slate-300">Highlighted across both 3D vector spaces</div>
+        `;
+      }
+
+      updateNodeComparisonDrawer(word);
+      renderBothGraphs();
+    }
+
+    function updateNodeComparisonDrawer(word) {
+      const panel = document.getElementById('nodeComparisonPanel');
+      const nodeIdx = state.graphNodes.findIndex(n => n.word === word);
+      if (nodeIdx < 0) {
+        panel.classList.add('hidden');
+        return;
+      }
+
+      const node = state.graphNodes[nodeIdx];
+      panel.classList.remove('hidden');
+
+      document.getElementById('compWordTitle').textContent = node.word;
+      const typeBadge = document.getElementById('compWordType');
+      if (node.status === 'oov-subword' || node.status === 'partial-unk') {
+        typeBadge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30';
+        typeBadge.textContent = 'OOV Subword-Composed';
+      } else if (node.inTest) {
+        typeBadge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        typeBadge.textContent = 'Test + Corpus Word';
+      } else {
+        typeBadge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30';
+        typeBadge.textContent = 'Corpus Word';
+      }
+
+      const subText = node.pieces.map(p => `${p.text}${p.id >= 0 ? ' [#' + p.id + ']' : ' [UNK]'}`).join('  +  ');
+      const sp = node.spellPos;
+      const mp = node.semPos;
+      document.getElementById('compSubwordBreakdown').innerHTML =
+        `Tokens: <span class="text-slate-100">${escapeHtml(subText)}</span> · ` +
+        `<span class="text-sky-400">3D Spell (${sp.x.toFixed(2)}, ${sp.y.toFixed(2)}, ${sp.z.toFixed(2)})</span> · ` +
+        `<span class="text-fuchsia-400">3D Mean (${mp.x.toFixed(2)}, ${mp.y.toFixed(2)}, ${mp.z.toFixed(2)})</span>`;
+
+      // Top 4 neighbors in Spelling
+      const spellNeighbors = state.graphNodes
+        .filter((_, j) => j !== nodeIdx)
+        .map(other => ({ word: other.word, score: state.spellingMatrix[nodeIdx][other.index] }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4);
+
+      document.getElementById('compSpellingNeighbors').innerHTML = spellNeighbors.map(nb => `
+        <li class="flex items-center justify-between text-slate-200">
+          <button onclick="selectWordAndInspect('${escapeJs(nb.word)}')" class="hover:text-sky-300 underline decoration-slate-700 cursor-pointer">${escapeHtml(nb.word)}</button>
+          <span class="text-sky-400">${(nb.score * 100).toFixed(1)}%</span>
+        </li>
+      `).join('');
+
+      // Top 4 neighbors in Semantic Meaning
+      const meanNeighbors = state.graphNodes
+        .filter((_, j) => j !== nodeIdx)
+        .map(other => ({ word: other.word, score: state.meaningMatrix[nodeIdx][other.index] }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4);
+
+      document.getElementById('compMeaningNeighbors').innerHTML = meanNeighbors.map(nb => `
+        <li class="flex items-center justify-between text-slate-200">
+          <button onclick="selectWordAndInspect('${escapeJs(nb.word)}')" class="hover:text-fuchsia-300 underline decoration-slate-700 cursor-pointer">${escapeHtml(nb.word)}</button>
+          <span class="text-fuchsia-400">${(nb.score * 100).toFixed(1)}%</span>
+        </li>
+      `).join('');
+    }
+
+    // ----------------------------------------------------------------------------
+    // 10. Interactive HTML5 Canvas 3D Perspective Projection Renderer
+    // ----------------------------------------------------------------------------
+    function project3DToScreen(x, y, z, width, height, view) {
+      // Rotate around Y axis (yaw)
+      const cosY = Math.cos(view.yaw);
+      const sinY = Math.sin(view.yaw);
+      const x1 = x * cosY - z * sinY;
+      const z1 = x * sinY + z * cosY;
+
+      // Rotate around X axis (pitch)
+      const cosP = Math.cos(view.pitch);
+      const sinP = Math.sin(view.pitch);
+      const y2 = y * cosP - z1 * sinP;
+      const z2 = y * sinP + z1 * cosP;
+
+      // Perspective camera projection (camera at z = -cameraDist looking toward origin)
+      const cameraDist = 3.55;
+      const denom = Math.max(0.65, cameraDist + z2);
+      const fovScale = (Math.min(width, height) * 0.42 * view.zoom) * (cameraDist / denom);
+
+      return {
+        sx: width / 2 + x1 * fovScale,
+        sy: height / 2 - y2 * fovScale,
+        depth: z2,
+        scale: cameraDist / denom
+      };
+    }
+
+    function draw3DBoundingBoxAndAxes(ctx, width, height, view, mode) {
+      const boxCorners = [
+        [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+        [-1, -1,  1], [1, -1,  1], [1, 1,  1], [-1, 1,  1]
+      ];
+      const boxEdges = [
+        [0, 1], [1, 2], [2, 3], [3, 0],
+        [4, 5], [5, 6], [6, 7], [7, 4],
+        [0, 4], [1, 5], [2, 6], [3, 7]
+      ];
+
+      const projCorners = boxCorners.map(([cx, cy, cz]) =>
+        project3DToScreen(cx, cy, cz, width, height, view)
+      );
+
+      // Floor grid on Y = -1 plane for strong 3D spatial depth cues
+      ctx.strokeStyle = 'rgba(51, 65, 85, 0.24)';
+      ctx.lineWidth = 1;
+      for (let g = -1; g <= 1.001; g += 0.5) {
+        const p1 = project3DToScreen(g, -1, -1, width, height, view);
+        const p2 = project3DToScreen(g, -1,  1, width, height, view);
+        ctx.beginPath();
+        ctx.moveTo(p1.sx, p1.sy);
+        ctx.lineTo(p2.sx, p2.sy);
+        ctx.stroke();
+
+        const p3 = project3DToScreen(-1, -1, g, width, height, view);
+        const p4 = project3DToScreen( 1, -1, g, width, height, view);
+        ctx.beginPath();
+        ctx.moveTo(p3.sx, p3.sy);
+        ctx.lineTo(p4.sx, p4.sy);
+        ctx.stroke();
+      }
+
+      // 3D Wireframe Cube Edges
+      ctx.strokeStyle = mode === 'spelling'
+        ? 'rgba(56, 189, 248, 0.16)'
+        : 'rgba(232, 121, 249, 0.16)';
+      ctx.lineWidth = 1;
+      for (const [a, b] of boxEdges) {
+        ctx.beginPath();
+        ctx.moveTo(projCorners[a].sx, projCorners[a].sy);
+        ctx.lineTo(projCorners[b].sx, projCorners[b].sy);
+        ctx.stroke();
+      }
+
+      // Primary 3D Coordinate Axes through Origin (X, Y, Z)
+      const axes = [
+        { from: [-1.12, 0, 0], to: [1.12, 0, 0], label: 'X', color: 'rgba(248, 113, 113, 0.45)' },
+        { from: [0, -1.12, 0], to: [0, 1.12, 0], label: 'Y', color: 'rgba(74, 222, 128, 0.45)' },
+        { from: [0, 0, -1.12], to: [0, 0, 1.12], label: 'Z', color: 'rgba(96, 165, 250, 0.45)' }
+      ];
+
+      ctx.font = '600 10px "JetBrains Mono", monospace';
+      for (const ax of axes) {
+        const pStart = project3DToScreen(ax.from[0], ax.from[1], ax.from[2], width, height, view);
+        const pEnd = project3DToScreen(ax.to[0], ax.to[1], ax.to[2], width, height, view);
+        ctx.strokeStyle = ax.color;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(pStart.sx, pStart.sy);
+        ctx.lineTo(pEnd.sx, pEnd.sy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = ax.color;
+        ctx.fillText(ax.label, pEnd.sx + 4, pEnd.sy + 3);
+      }
+    }
+
+    function renderSingleGraph(canvasId, mode) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+
+      if (canvas.width !== Math.floor(rect.width * dpr) || canvas.height !== Math.floor(rect.height * dpr)) {
+        canvas.width = Math.floor(rect.width * dpr);
+        canvas.height = Math.floor(rect.height * dpr);
+      }
+
+      const ctx = canvas.getContext('2d');
+      ctx.save();
+      ctx.scale(dpr, dpr);
+
+      const width = rect.width;
+      const height = rect.height;
+      const view = state.views[mode];
+      const nodes = state.graphNodes;
+      const simMatrix = mode === 'spelling' ? state.spellingMatrix : state.meaningMatrix;
+      const showLabels = document.getElementById('toggleLabels').checked;
+      const showEdges = document.getElementById('toggleEdges').checked;
+      const threshold = parseFloat(document.getElementById('edgeThresholdSlider').value);
+
+      // Update camera HUD badge
+      const hudEl = document.getElementById(mode === 'spelling' ? 'spellingCameraHud' : 'meaningCameraHud');
+      if (hudEl) {
+        const yawDeg = Math.round(((view.yaw * 180 / Math.PI) % 360 + 360) % 360);
+        const pitchDeg = Math.round(view.pitch * 180 / Math.PI);
+        hudEl.textContent = `Yaw ${yawDeg}° · Pitch ${pitchDeg}° · ${view.zoom.toFixed(2)}x`;
+      }
+
+      // Clear deep space background with subtle radial vignette
+      const bgGrad = ctx.createRadialGradient(width / 2, height / 2, 20, width / 2, height / 2, Math.max(width, height) * 0.7);
+      bgGrad.addColorStop(0, '#0c1426');
+      bgGrad.addColorStop(1, '#060911');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw 3D floor grid, bounding wireframe cube & X/Y/Z axes
+      draw3DBoundingBoxAndAxes(ctx, width, height, view, mode);
+
+      if (nodes.length === 0) {
+        ctx.restore();
+        return;
+      }
+
+      // Project all 3D points to 2D screen space with camera depth
+      const projected = nodes.map((n, idx) => {
+        const pos = mode === 'spelling' ? n.spellPos : n.semPos;
+        const proj = project3DToScreen(pos.x, pos.y, pos.z, width, height, view);
+        return { node: n, idx, pos, ...proj };
+      });
+
+      const selectedIdx = nodes.findIndex(n => n.word === state.selectedWord);
+      const activeFocusIdx = view.hoveredIdx >= 0 ? view.hoveredIdx : selectedIdx;
+
+      // 1. Draw 3D similarity edges (with depth-based opacity)
+      if (showEdges && simMatrix.length === nodes.length) {
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const sim = simMatrix[i][j];
+            const isConnectedToFocus = (i === activeFocusIdx || j === activeFocusIdx) && sim >= threshold * 0.78;
+            if (sim >= threshold || isConnectedToFocus) {
+              const pA = projected[i];
+              const pB = projected[j];
+              const avgScale = (pA.scale + pB.scale) * 0.5;
+              const depthFade = Math.min(1.15, Math.max(0.35, avgScale));
+
+              const alpha = isConnectedToFocus
+                ? Math.min(0.92, sim * 0.95)
+                : Math.min(0.45, ((sim - threshold) / (1 - threshold + 0.01) * 0.45 + 0.08) * depthFade);
+
+              ctx.strokeStyle = isConnectedToFocus
+                ? 'rgba(34, 211, 238, ' + alpha.toFixed(2) + ')'
+                : mode === 'spelling'
+                  ? 'rgba(56, 189, 248, ' + alpha.toFixed(2) + ')'
+                  : 'rgba(232, 121, 249, ' + alpha.toFixed(2) + ')';
+
+              ctx.lineWidth = (isConnectedToFocus ? 2.1 : 1.0) * Math.min(1.4, Math.max(0.7, avgScale));
+              ctx.beginPath();
+              ctx.moveTo(pA.sx, pA.sy);
+              ctx.lineTo(pB.sx, pB.sy);
+              ctx.stroke();
+            }
+          }
+        }
+      }
+
+      // 2. Depth-sort nodes back-to-front (Painter's Algorithm: higher z2 is farther away)
+      const sortedByDepth = [...projected].sort((a, b) => b.depth - a.depth);
+      const pulse = 0.5 + 0.5 * Math.sin(state.animTime * 4.2);
+
+      // 3. Render 3D shaded spheres & billboarded perspective labels
+      for (const item of sortedByDepth) {
+        const { node: n, idx, sx, sy, scale } = item;
+        const isSelected = n.word === state.selectedWord;
+        const isHovered = view.hoveredIdx === idx;
+
+        // Depth fog factor: closer nodes are brighter & sharper, distant nodes gently fade
+        const depthAlpha = Math.min(1.0, Math.max(0.36, 0.35 + 0.62 * scale));
+
+        // Base color palette by token status
+        let coreColor = '#818cf8';
+        let highlightColor = '#c7d2fe';
+        let shadowColor = '#312e81';
+        if (n.status === 'oov-subword' || n.status === 'partial-unk') {
+          coreColor = '#f59e0b';
+          highlightColor = '#fef3c7';
+          shadowColor = '#78350f';
+        } else if (n.inTest) {
+          coreColor = '#10b981';
+          highlightColor = '#d1fae5';
+          shadowColor = '#064e3b';
+        }
+        if (isSelected) {
+          coreColor = '#06b6d4';
+          highlightColor = '#cffafe';
+          shadowColor = '#164e63';
+        }
+
+        const baseR = isSelected ? 8.2 : isHovered ? 7.2 : n.inTest ? 6.0 : 4.8;
+        const radius = Math.max(2.6, baseR * scale);
+
+        // Drop shadow onto floor plane (Y = -1) when selected or hovered for 3D grounding
+        if (isSelected || isHovered) {
+          const floorProj = project3DToScreen(item.pos.x, -1, item.pos.z, width, height, view);
+          ctx.strokeStyle = isSelected ? 'rgba(34, 211, 238, 0.35)' : 'rgba(255, 255, 255, 0.2)';
+          ctx.setLineDash([2, 2]);
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(floorProj.sx, floorProj.sy);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          ctx.beginPath();
+          ctx.ellipse(floorProj.sx, floorProj.sy, radius * 1.1, radius * 0.45, 0, 0, Math.PI * 2);
+          ctx.fillStyle = isSelected ? 'rgba(34, 211, 238, 0.25)' : 'rgba(255, 255, 255, 0.14)';
+          ctx.fill();
+        }
+
+        // Pulsing halo ring for Selected / Hovered node
+        if (isSelected || isHovered) {
+          const haloR = radius + (isSelected ? 5.5 + pulse * 3.5 : 5);
+          ctx.beginPath();
+          ctx.arc(sx, sy, haloR, 0, Math.PI * 2);
+          ctx.fillStyle = isSelected
+            ? `rgba(34, 211, 238, ${(0.16 + pulse * 0.12).toFixed(2)})`
+            : 'rgba(255, 255, 255, 0.14)';
+          ctx.fill();
+
+          if (isSelected) {
+            ctx.lineWidth = 1.4;
+            ctx.strokeStyle = `rgba(103, 232, 249, ${(0.45 + pulse * 0.4).toFixed(2)})`;
+            ctx.stroke();
+          }
+        }
+
+        // 3D Specular Sphere Gradient
+        ctx.save();
+        ctx.globalAlpha = isSelected || isHovered ? 1.0 : depthAlpha;
+        const sphereGrad = ctx.createRadialGradient(
+          sx - radius * 0.32,
+          sy - radius * 0.32,
+          radius * 0.1,
+          sx,
+          sy,
+          radius
+        );
+        sphereGrad.addColorStop(0, highlightColor);
+        sphereGrad.addColorStop(0.55, coreColor);
+        sphereGrad.addColorStop(1, shadowColor);
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+        ctx.fillStyle = sphereGrad;
+        ctx.fill();
+
+        if (isSelected || isHovered || n.inTest) {
+          ctx.lineWidth = isSelected ? 1.8 : 1.0;
+          ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(15, 23, 42, 0.85)';
+          ctx.stroke();
+        }
+
+        // Always-upright Billboarded Text Label scaled by 3D perspective depth
+        if (showLabels || isSelected || isHovered || n.inTest) {
+          const fontSize = Math.round(Math.min(13.5, Math.max(8.5, (isSelected || isHovered ? 12 : 10.5) * scale)));
+          ctx.font = (isSelected || isHovered)
+            ? `600 ${fontSize}px "JetBrains Mono", monospace`
+            : n.inTest
+              ? `500 ${fontSize}px "JetBrains Mono", monospace`
+              : `400 ${fontSize}px "JetBrains Mono", monospace`;
+
+          const textWidth = ctx.measureText(n.word).width;
+          const labelX = sx - textWidth / 2;
+          const labelY = sy - radius - 4;
+
+          ctx.fillStyle = isSelected ? 'rgba(8, 51, 68, 0.92)' : 'rgba(6, 9, 17, 0.74)';
+          ctx.fillRect(labelX - 3, labelY - fontSize + 1, textWidth + 6, fontSize + 3);
+
+          ctx.fillStyle = isSelected
+            ? '#67e8f9'
+            : (n.status === 'oov-subword' || n.status === 'partial-unk')
+              ? '#fde68a'
+              : n.inTest
+                ? '#a7f3d0'
+                : '#cbd5e1';
+
+          ctx.fillText(n.word, labelX, labelY);
+        }
+        ctx.restore();
+      }
+
+      ctx.restore();
+    }
+
+    function renderBothGraphs() {
+      renderSingleGraph('spellingCanvas', 'spelling');
+      renderSingleGraph('meaningCanvas', 'meaning');
+    }
+
+    function resetGraphViews() {
+      state.views.spelling = { zoom: 1.0, yaw: 0.56, pitch: 0.38, dragging: false, lastX: 0, lastY: 0, hoveredIdx: -1 };
+      state.views.meaning  = { zoom: 1.0, yaw: 0.56, pitch: 0.38, dragging: false, lastX: 0, lastY: 0, hoveredIdx: -1 };
+      renderBothGraphs();
+    }
+
+    // ----------------------------------------------------------------------------
+    // 11. 3D Canvas Orbit (Yaw/Pitch), Zoom, Hover Tooltip & Click Interaction Setup
+    // ----------------------------------------------------------------------------
+    function attachCanvasInteractions(canvasId, mode) {
+      const canvas = document.getElementById(canvasId);
+      const tooltip = document.getElementById('graphTooltip');
+      const otherMode = mode === 'spelling' ? 'meaning' : 'spelling';
+
+      function findNodeAt(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        const mx = clientX - rect.left;
+        const my = clientY - rect.top;
+        const view = state.views[mode];
+
+        let closestIdx = -1;
+        let closestDist = 18; // Hit radius in px
+
+        for (let i = 0; i < state.graphNodes.length; i++) {
+          const n = state.graphNodes[i];
+          const pos = mode === 'spelling' ? n.spellPos : n.semPos;
+          const proj = project3DToScreen(pos.x, pos.y, pos.z, rect.width, rect.height, view);
+          const dist = Math.hypot(mx - proj.sx, my - proj.sy);
+          if (dist < closestDist) {
+            closestDist = dist;
+            closestIdx = i;
+          }
+        }
+        return closestIdx;
+      }
+
+      let dragMoved = false;
+
+      canvas.addEventListener('mousedown', (e) => {
+        const view = state.views[mode];
+        view.dragging = true;
+        view.lastX = e.clientX;
+        view.lastY = e.clientY;
+        dragMoved = false;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        const view = state.views[mode];
+        if (view.dragging) {
+          const dx = e.clientX - view.lastX;
+          const dy = e.clientY - view.lastY;
+          if (Math.abs(dx) > 2 || Math.abs(dy) > 2) dragMoved = true;
+
+          view.yaw += dx * 0.0085;
+          view.pitch = Math.max(-1.42, Math.min(1.42, view.pitch + dy * 0.0085));
+          view.lastX = e.clientX;
+          view.lastY = e.clientY;
+
+          if (document.getElementById('syncCamerasToggle').checked) {
+            state.views[otherMode].yaw = view.yaw;
+            state.views[otherMode].pitch = view.pitch;
+            renderBothGraphs();
+          } else {
+            renderSingleGraph(canvasId, mode);
+          }
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        state.views[mode].dragging = false;
+      });
+
+      canvas.addEventListener('mousemove', (e) => {
+        const view = state.views[mode];
+        if (view.dragging) {
+          tooltip.classList.add('hidden');
+          return;
+        }
+        const hitIdx = findNodeAt(e.clientX, e.clientY);
+        if (hitIdx !== view.hoveredIdx) {
+          view.hoveredIdx = hitIdx;
+          canvas.style.cursor = hitIdx >= 0 ? 'pointer' : 'grab';
+          renderSingleGraph(canvasId, mode);
+        }
+
+        if (hitIdx >= 0) {
+          const node = state.graphNodes[hitIdx];
+          const pos = mode === 'spelling' ? node.spellPos : node.semPos;
+          const simMatrix = mode === 'spelling' ? state.spellingMatrix : state.meaningMatrix;
+          const subStr = node.pieces.map(p => p.text).join(' + ');
+
+          // Compute top 2 nearest neighbors in this 3D space for instant tooltip insight
+          const top2 = state.graphNodes
+            .filter((_, j) => j !== hitIdx)
+            .map(other => ({ word: other.word, score: simMatrix[hitIdx][other.index] }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 2)
+            .map(nb => `${nb.word} (${Math.round(nb.score * 100)}%)`)
+            .join(', ');
+
+          tooltip.innerHTML = `
+            <div class="flex items-center justify-between gap-3 mb-0.5">
+              <span class="font-mono font-bold text-cyan-300 text-xs">${escapeHtml(node.word)}</span>
+              <span class="font-mono text-[10px] text-slate-400">(${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})</span>
+            </div>
+            <div class="text-[11px] text-slate-300">Tokens: <span class="font-mono text-amber-300">${escapeHtml(subStr)}</span></div>
+            <div class="text-[10px] text-slate-400 mt-0.5">Nearest 3D: <span class="text-slate-200">${escapeHtml(top2)}</span></div>
+          `;
+          tooltip.style.left = `${Math.min(window.innerWidth - 250, e.clientX + 14)}px`;
+          tooltip.style.top = `${Math.max(10, e.clientY - 14)}px`;
+          tooltip.classList.remove('hidden');
+        } else {
+          tooltip.classList.add('hidden');
+        }
+      });
+
+      canvas.addEventListener('mouseleave', () => {
+        state.views[mode].hoveredIdx = -1;
+        tooltip.classList.add('hidden');
+        renderSingleGraph(canvasId, mode);
+      });
+
+      canvas.addEventListener('click', (e) => {
+        if (dragMoved) return;
+        const hitIdx = findNodeAt(e.clientX, e.clientY);
+        if (hitIdx >= 0) {
+          const node = state.graphNodes[hitIdx];
+          selectWordAndInspect(node.word);
+        }
+      });
+
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const view = state.views[mode];
+        const factor = e.deltaY < 0 ? 1.10 : 0.91;
+        view.zoom = Math.min(3.5, Math.max(0.45, view.zoom * factor));
+
+        if (document.getElementById('syncCamerasToggle').checked) {
+          state.views[otherMode].zoom = view.zoom;
+          renderBothGraphs();
+        } else {
+          renderSingleGraph(canvasId, mode);
+        }
+      }, { passive: false });
+
+      // Touch support for mobile 3D orbit & tap
+      canvas.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          const t = e.touches[0];
+          const view = state.views[mode];
+          view.dragging = true;
+          view.lastX = t.clientX;
+          view.lastY = t.clientY;
+          dragMoved = false;
+        }
+      }, { passive: true });
+
+      canvas.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 1 && state.views[mode].dragging) {
+          const t = e.touches[0];
+          const view = state.views[mode];
+          const dx = t.clientX - view.lastX;
+          const dy = t.clientY - view.lastY;
+          if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragMoved = true;
+          view.yaw += dx * 0.009;
+          view.pitch = Math.max(-1.42, Math.min(1.42, view.pitch + dy * 0.009));
+          view.lastX = t.clientX;
+          view.lastY = t.clientY;
+
+          if (document.getElementById('syncCamerasToggle').checked) {
+            state.views[otherMode].yaw = view.yaw;
+            state.views[otherMode].pitch = view.pitch;
+            renderBothGraphs();
+          } else {
+            renderSingleGraph(canvasId, mode);
+          }
+        }
+      }, { passive: true });
+
+      canvas.addEventListener('touchend', (e) => {
+        state.views[mode].dragging = false;
+        if (!dragMoved && e.changedTouches.length === 1) {
+          const t = e.changedTouches[0];
+          const hitIdx = findNodeAt(t.clientX, t.clientY);
+          if (hitIdx >= 0) {
+            selectWordAndInspect(state.graphNodes[hitIdx].word);
+          }
+        }
+      });
+    }
+
+    // Continuous Animation Loop for Smooth 3D Auto-Rotation & Selected Node Pulse
+    let lastFrameTime = performance.now();
+    function animationLoop(now) {
+      const dt = Math.min(0.05, (now - lastFrameTime) / 1000);
+      lastFrameTime = now;
+      state.animTime += dt;
+
+      const autoRotate = document.getElementById('autoRotateToggle')?.checked;
+      const anyDragging = state.views.spelling.dragging || state.views.meaning.dragging;
+
+      if (autoRotate && !anyDragging) {
+        if (!state.views.spelling.dragging && state.views.spelling.hoveredIdx < 0) {
+          state.views.spelling.yaw += dt * 0.24;
+        }
+        if (!state.views.meaning.dragging && state.views.meaning.hoveredIdx < 0) {
+          state.views.meaning.yaw += dt * 0.24;
+        }
+      }
+
+      if ((autoRotate && !anyDragging) || state.selectedWord) {
+        renderBothGraphs();
+      }
+
+      requestAnimationFrame(animationLoop);
+    }
+
+    // ----------------------------------------------------------------------------
+    // 12. Pipeline Orchestration & Utility Helpers
+    // ----------------------------------------------------------------------------
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function escapeJs(str) {
+      return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    function runFullPipeline() {
+      const trainingText = document.getElementById('trainingInput').value;
+      const testText = document.getElementById('testInput').value;
+      const maxMerges = parseInt(document.getElementById('mergeStepsSlider').value, 10);
+
+      buildBPEVocabulary(trainingText, maxMerges);
+      tokenizeTestParagraph(testText);
+      renderVocabulary();
+      renderTokenizedOutput();
+      buildEmbeddingGraphs();
+    }
+
+    function runTestUpdateOnly() {
+      const testText = document.getElementById('testInput').value;
+      tokenizeTestParagraph(testText);
+      renderTokenizedOutput();
+      buildEmbeddingGraphs();
+    }
+
+    function loadPreset(key) {
+      const preset = PRESETS[key];
+      if (!preset) return;
+      document.getElementById('trainingInput').value = preset.training;
+      document.getElementById('testInput').value = preset.test;
+      state.selectedWord = null;
+      resetGraphViews();
+      runFullPipeline();
+    }
+
+    // Event Listeners
+    document.getElementById('mergeStepsSlider').addEventListener('input', (e) => {
+      document.getElementById('mergeStepsLabel').textContent = `${e.target.value} merges`;
+      runFullPipeline();
+    });
+
+    let testDebounceTimer = null;
+    document.getElementById('testInput').addEventListener('input', () => {
+      clearTimeout(testDebounceTimer);
+      testDebounceTimer = setTimeout(runTestUpdateOnly, 180);
+    });
+
+    let trainDebounceTimer = null;
+    document.getElementById('trainingInput').addEventListener('input', () => {
+      clearTimeout(trainDebounceTimer);
+      trainDebounceTimer = setTimeout(runFullPipeline, 350);
+    });
+
+    document.getElementById('toggleLabels').addEventListener('change', renderBothGraphs);
+    document.getElementById('toggleEdges').addEventListener('change', renderBothGraphs);
+    document.getElementById('edgeThresholdSlider').addEventListener('input', (e) => {
+      document.getElementById('edgeThresholdVal').textContent = parseFloat(e.target.value).toFixed(2);
+      renderBothGraphs();
+    });
+
+    window.addEventListener('resize', renderBothGraphs);
+
+    // Initialize App on Load
+    window.addEventListener('DOMContentLoaded', () => {
+      attachCanvasInteractions('spellingCanvas', 'spelling');
+      attachCanvasInteractions('meaningCanvas', 'meaning');
+      loadPreset('ai');
+      requestAnimationFrame(animationLoop);
+    });
+  </script>
+</body>
+</html>
